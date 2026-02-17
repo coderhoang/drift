@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEON SINGULARITY</title>
+    <style>
+        :root {
+            --bg: #050508;
+            --blue: #00f2ff;
+            --pink: #ff00ea;
+            --green: #3eff8b;
+            --text: #e0e0e5;
+        }
+
+        * { box-sizing: border-box; }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            background-color: #000;
+        }
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(5, 5, 8, 0.85);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            transition: opacity 0.5s ease;
+        }
+
+        .hidden { display: none !important; opacity: 0; pointer-events: none; }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            padding: 0 40px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .hud-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-left: 3px solid var(--blue);
+            padding: 10px 20px;
+            min-width: 140px;
+        }
+
+        .hud-box.counter {
+            border-left-color: var(--green);
+        }
+
+        .hud-label {
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: var(--blue);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .counter .hud-label { color: var(--green); }
+
+        .hud-value {
+            font-size: 24px;
+            font-weight: 900;
+            font-family: monospace;
+        }
+
+        h1 {
+            font-size: 64px;
+            margin: 0;
+            letter-spacing: 15px;
+            color: #fff;
+            text-shadow: 0 0 20px var(--blue);
+        }
+
+        .subtitle {
+            margin-bottom: 40px;
+            color: var(--blue);
+            letter-spacing: 4px;
+            font-weight: 300;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--blue);
+            color: var(--blue);
+            padding: 15px 50px;
+            font-size: 16px;
+            letter-spacing: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .btn:hover {
+            background: var(--blue);
+            color: #000;
+            box-shadow: 0 0 30px var(--blue);
+        }
+
+        #power-bar-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 250px;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            z-index: 60;
+        }
+
+        #power-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: var(--blue);
+            box-shadow: 0 0 10px var(--blue);
+        }
+
+        .sector-transition {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 40px;
+            font-weight: 900;
+            color: var(--green);
+            pointer-events: none;
+            z-index: 200;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="hud">
+            <div class="hud-box">
+                <div class="hud-label">Level</div>
+                <div id="val-sector" class="hud-value">01</div>
+            </div>
+            <div class="hud-box counter">
+                <div class="hud-label">Total Drifts</div>
+                <div id="val-drifts" class="hud-value">0</div>
+            </div>
+        </div>
+
+        <div id="sector-msg" class="sector-transition">LEVEL COMPLETED</div>
+
+        <div id="screen-start" class="overlay">
+            <h1>Drift Game</h1>
+            <div class="subtitle">Drag your mouse to drift!</div>
+            <button class="btn" onclick="Game.init()">Get Started</button>
+        </div>
+
+        <div id="screen-death" class="overlay hidden">
+            <h1 style="text-shadow: 0 0 20px var(--pink);">YOU LOST</h1>
+            <br>
+            <button class="btn" onclick="location.reload()">RESTART</button>
+        </div>
+
+        <div id="power-bar-container">
+            <div id="power-bar-fill"></div>
+        </div>
+
+        <canvas id="stage"></canvas>
+    </div>
+
+<script>
+class Vec2 {
+    constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+    add(v) { this.x += v.x; this.y += v.y; return this; }
+    sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+    mult(s) { this.x *= s; this.y *= s; return this; }
+    mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+    normalize() { const m = this.mag(); return m > 0 ? this.mult(1/m) : new Vec2(0, 0); }
+    copy() { return new Vec2(this.x, this.y); }
+    static dist(v1, v2) { return Math.sqrt((v1.x - v2.x)**2 + (v1.y - v2.y)**2); }
+    static sub(v1, v2) { return new Vec2(v1.x - v2.x, v1.y - v2.y); }
+    static fromAngle(a, m = 1) { return new Vec2(Math.cos(a) * m, Math.sin(a) * m); }
+}
+
+class Player {
+    constructor(x, y) {
+        this.pos = new Vec2(x, y);
+        this.vel = new Vec2(0, 0);
+        this.radius = 12;
+        this.trail = [];
+        this.maxTrail = 40;
+        this.angle = 0;
+        this.stats = { power: 0.22, friction: 0.988 };
+    }
+
+    update() {
+        this.pos.add(this.vel);
+        this.vel.mult(this.stats.friction);
+        
+        this.trail.unshift(this.pos.copy());
+        if (this.trail.length > this.maxTrail) this.trail.pop();
+        
+        const speed = this.vel.mag();
+        if (speed < 0.1) {
+            this.vel.mult(0);
+            this.angle += 0.02;
+        } else {
+            this.angle += speed * 0.1;
+        }
+    }
+
+    draw(ctx) {
+        if (this.trail.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(this.trail[0].x, this.trail[0].y);
+            for (let i = 1; i < this.trail.length; i++) {
+                ctx.lineTo(this.trail[i].x, this.trail[i].y);
+            }
+            ctx.strokeStyle = 'rgba(0, 242, 255, 0.15)';
+            ctx.lineWidth = this.radius * 1.5;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+        
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(this.angle);
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00f2ff';
+        
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const a = (Math.PI / 3) * i;
+            ctx.lineTo(Math.cos(a) * this.radius, Math.sin(a) * this.radius);
+        }
+        ctx.closePath();
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00f2ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class BlackHole {
+    constructor(x, y, size) {
+        this.pos = new Vec2(x, y);
+        this.radius = size;
+        this.rot = 0;
+    }
+    update() { this.rot += 0.03; }
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(this.rot);
+        for (let i = 0; i < 3; i++) {
+            ctx.rotate(2);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, this.radius * 2.5, this.radius * 0.8, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(188, 19, 254, 0.4)';
+            ctx.stroke();
+        }
+        const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius * 1.3);
+        grad.addColorStop(0, '#000');
+        grad.addColorStop(0.8, '#000');
+        grad.addColorStop(1, '#bc13fe');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius * 1.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Obstacle {
+    constructor(x, y, w, h) {
+        this.pos = new Vec2(x, y);
+        this.w = w; this.h = h;
+    }
+    draw(ctx) {
+        ctx.fillStyle = '#111122';
+        ctx.strokeStyle = '#444466';
+        ctx.lineWidth = 2;
+        ctx.fillRect(this.pos.x, this.pos.y, this.w, this.h);
+        ctx.strokeRect(this.pos.x, this.pos.y, this.w, this.h);
+    }
+}
+
+class Goal {
+    constructor(x, y) {
+        this.pos = new Vec2(x, y);
+        this.radius = 60;
+        this.pulse = 0;
+    }
+    update() { this.pulse += 0.05; }
+    draw(ctx) {
+        const s = this.radius + Math.sin(this.pulse) * 8;
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, s);
+        
+        grad.addColorStop(0, 'rgba(62, 255, 139, 0.4)');
+        grad.addColorStop(1, 'transparent');
+        ctx.strokeStyle = '#3eff8b';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#3eff8b';
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI*2); ctx.fill();
+        ctx.setLineDash([12, 6]);
+        ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+    }
+}
+
+const Game = {
+    canvas: null, ctx: null, width: 0, height: 0,
+    state: 'START', sector: 1, 
+    driftsCurrent: 0,
+    player: null, goal: null, 
+    blackHoles: [], obstacles: [], particles: [],
+    input: { active: false, start: new Vec2(), end: new Vec2(), maxDrag: 220 },
+
+    init() {
+        this.canvas = document.getElementById('stage');
+        this.ctx = this.canvas.getContext('2d');
+        this.resize();
+        window.onresize = () => this.resize();
+        this.setupEvents();
+        this.startLevel(1);
+        document.getElementById('screen-start').classList.add('hidden');
+        this.loop();
+    },
+
+    resize() {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
+    },
+
+    startLevel(num) {
+        this.sector = num;
+        this.state = 'PLAY';
+        this.blackHoles = [];
+        this.obstacles = [];
+        this.particles = [];
+        this.driftsCurrent = 0; 
+
+        this.player = this.player || new Player(120, this.height / 2);
+        this.player.pos = new Vec2(120, this.height / 2);
+        this.player.vel = new Vec2(0, 0);
+        this.player.trail = [];
+        this.goal = new Goal(this.width - 150, this.height / 2);
+        
+        if (num === 1) {
+            this.obstacles.push(new Obstacle(this.width/2 - 20, 0, 40, this.height * 0.2));
+            this.obstacles.push(new Obstacle(this.width/2 - 20, this.height * 0.8, 40, this.height * 0.2));
+        } else if (num === 2) {
+            this.obstacles.push(new Obstacle(this.width/2 - 20, this.height/2 - 75, 40, 150));
+        } else {
+            const count = Math.min(Math.floor(num/2), 5);
+            for(let i=0; i<count; i++) {
+                this.blackHoles.push(new BlackHole(
+                    400 + Math.random() * (this.width - 700),
+                    100 + Math.random() * (this.height - 200),
+                    20 + Math.random() * 10
+                ));
+            }
+        }
+        this.updateHUD();
+    },
+
+    updateHUD() {
+        document.getElementById('val-sector').innerText = this.sector.toString().padStart(2, '0');
+        document.getElementById('val-drifts').innerText = this.driftsCurrent;
+    },
+
+    setupEvents() {
+        const handleStart = (e) => {
+            if (this.state !== 'PLAY') return;
+            const t = e.touches ? e.touches[0] : e;
+            this.input.active = true;
+            this.input.start = new Vec2(t.clientX, t.clientY);
+            this.input.end = this.input.start.copy();
+        };
+        const handleMove = (e) => {
+            if (!this.input.active) return;
+            const t = e.touches ? e.touches[0] : e;
+            this.input.end = new Vec2(t.clientX, t.clientY);
+        };
+        const handleEnd = () => {
+            if (!this.input.active) return;
+            this.input.active = false;
+            const diff = Vec2.sub(this.input.start, this.input.end);
+            const dist = Math.min(diff.mag(), this.input.maxDrag);
+            if (dist > 25) {
+                this.player.vel.add(diff.normalize().mult(dist * this.player.stats.power));
+                this.driftsCurrent++;
+                this.updateHUD();
+                this.spawnParticles(this.player.pos, '#00f2ff', 12);
+            }
+        };
+        window.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchstart', handleStart);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
+    },
+
+    spawnParticles(pos, color, count) {
+        for (let i = 0; i < count; i++) {
+            this.particles.push({
+                pos: pos.copy(),
+                vel: Vec2.fromAngle(Math.random() * Math.PI * 2, Math.random() * 4),
+                life: 1.0, decay: 0.03, color: color
+            });
+        }
+    },
+
+    update() {
+        if (this.state !== 'PLAY') return;
+        this.player.update();
+        this.goal.update();
+        
+        this.blackHoles.forEach(bh => {
+            bh.update();
+            const d = Vec2.dist(this.player.pos, bh.pos);
+            if (d < bh.radius * 5) {
+                const force = 0.65 / (d * 0.012);
+                this.player.vel.add(Vec2.sub(bh.pos, this.player.pos).normalize().mult(force));
+            }
+            if (d < bh.radius + 5) this.die("Singularity Collapse.");
+        });
+
+        this.obstacles.forEach(o => {
+            const p = this.player;
+            if (p.pos.x + p.radius > o.pos.x && p.pos.x - p.radius < o.pos.x + o.w &&
+                p.pos.y + p.radius > o.pos.y && p.pos.y - p.radius < o.pos.y + o.h) {
+                this.die("Impact Detected.");
+            }
+        });
+
+        if (this.player.pos.x < -50 || this.player.pos.x > this.width + 50 || 
+            this.player.pos.y < -50 || this.player.pos.y > this.height + 50) {
+            this.die("Lost");
+        }
+
+        if (Vec2.dist(this.player.pos, this.goal.pos) < this.goal.radius) {
+            this.winLevel();
+        }
+
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.pos.add(p.vel);
+            p.life -= p.decay;
+            if (p.life <= 0) this.particles.splice(i, 1);
+        }
+
+        if (this.input.active) {
+            const mag = Math.min(Vec2.sub(this.input.start, this.input.end).mag(), this.input.maxDrag);
+            document.getElementById('power-bar-fill').style.width = (mag / this.input.maxDrag * 100) + '%';
+        } else {
+            document.getElementById('power-bar-fill').style.width = '0%';
+        }
+    },
+
+    die(reason) {
+        this.state = 'DEAD';
+        this.spawnParticles(this.player.pos, '#ff00ea', 30);
+        document.getElementById('screen-death').classList.remove('hidden');
+        document.getElementById('death-reason').innerText = reason;
+    },
+
+    winLevel() {
+        this.state = 'TRANSITION';
+        this.spawnParticles(this.player.pos, '#3eff8b', 40);
+        const msg = document.getElementById('sector-msg');
+        msg.style.opacity = '1';
+        setTimeout(() => {
+            msg.style.opacity = '0';
+            this.startLevel(this.sector + 1);
+        }, 1200);
+    },
+
+    draw() {
+        this.ctx.fillStyle = 'rgba(5, 5, 8, 0.3)';
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        
+        this.obstacles.forEach(o => o.draw(this.ctx));
+        this.blackHoles.forEach(bh => bh.draw(this.ctx));
+        this.goal.draw(this.ctx);
+        
+        this.particles.forEach(p => {
+            this.ctx.globalAlpha = p.life;
+            this.ctx.fillStyle = p.color;
+            this.ctx.fillRect(p.pos.x, p.pos.y, 2, 2);
+        });
+        this.ctx.globalAlpha = 1.0;
+
+        if (this.state !== 'DEAD') this.player.draw(this.ctx);
+
+        if (this.input.active) {
+            const diff = Vec2.sub(this.input.start, this.input.end);
+            const dist = Math.min(diff.mag(), this.input.maxDrag);
+            if (dist > 15) {
+                const dir = diff.normalize();
+                this.ctx.beginPath();
+                this.ctx.setLineDash([8, 4]);
+                this.ctx.moveTo(this.player.pos.x, this.player.pos.y);
+                this.ctx.lineTo(this.player.pos.x + dir.x * dist, this.player.pos.y + dir.y * dist);
+                this.ctx.strokeStyle = 'rgba(0, 242, 255, 0.6)';
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+            }
+        }
+    },
+
+    loop() {
+        this.update();
+        this.draw();
+        requestAnimationFrame(() => this.loop());
+    }
+};
+</script>
+</body>
+</html>
